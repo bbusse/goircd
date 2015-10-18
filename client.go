@@ -52,7 +52,13 @@ type Client struct {
 }
 
 func (c Client) String() string {
-	return *c.nickname + "!" + *c.username + "@" + c.conn.RemoteAddr().String()
+	addr := c.conn.RemoteAddr().String()
+	i := strings.LastIndex(addr, ":")
+	domain, err := net.LookupAddr(addr[0:i])
+	if err == nil {
+		addr = strings.TrimSuffix(domain[0], ".")
+	}
+	return *c.nickname + "!" + *c.username + "@" + addr
 }
 
 func NewClient(conn net.Conn) *Client {
