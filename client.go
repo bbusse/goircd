@@ -54,7 +54,7 @@ type Client struct {
 func (c Client) String() string {
 	addr := c.conn.RemoteAddr().String()
 	i := strings.LastIndex(addr, ":")
-    addr = addr[0:i]
+	addr = addr[0:i]
 	domain, err := net.LookupAddr(addr)
 	if err == nil {
 		addr = strings.TrimSuffix(domain[0], ".")
