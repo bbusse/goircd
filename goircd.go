@@ -27,6 +27,9 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
+
+	proxyproto "github.com/Freeaqingme/go-proxyproto"
 )
 
 var (
@@ -42,6 +45,10 @@ var (
 	verbose   = flag.Bool("v", false, "Enable verbose logging.")
 )
 
+const (
+	PROXY_TIMEOUT = 5 * time.Second
+)
+
 func listenerLoop(sock net.Listener, events chan ClientEvent) {
 	for {
 		conn, err := sock.Accept()
@@ -49,7 +56,8 @@ func listenerLoop(sock net.Listener, events chan ClientEvent) {
 			log.Println("Error during accepting connection", err)
 			continue
 		}
-		client := NewClient(conn)
+		proxied_conn := proxyproto.NewConn(conn, PROXY_TIMEOUT)
+		client := NewClient(proxied_conn)
 		go client.Processor(events)
 	}
 }
