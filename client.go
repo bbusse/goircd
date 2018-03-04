@@ -49,6 +49,7 @@ type Client struct {
 	sendTimestamp time.Time
 	outBuf        chan *string
 	alive         bool
+	quitMsg       *string
 	sync.Mutex
 }
 
@@ -67,13 +68,19 @@ func (c *Client) String() string {
 	return *c.nickname + "!" + *c.username + "@" + c.Host()
 }
 
+func (c *Client) Match(other string) bool {
+	return strings.ToLower(*c.nickname) == strings.ToLower(other)
+}
+
 func NewClient(conn *proxyproto.Conn) *Client {
 	nickname := "*"
 	username := ""
+	realname := ""
 	c := Client{
 		conn:          conn,
 		nickname:      &nickname,
 		username:      &username,
+		realname:      &realname,
 		recvTimestamp: time.Now(),
 		sendTimestamp: time.Now(),
 		alive:         true,
@@ -88,9 +95,10 @@ func (c *Client) SetDead() {
 	c.alive = false
 }
 
-func (c *Client) Close() {
+func (c *Client) Close(text string) {
 	c.Lock()
 	if c.alive {
+		c.quitMsg = &text
 		c.SetDead()
 	}
 	c.Unlock()
@@ -127,8 +135,8 @@ func (c *Client) Processor(sink chan ClientEvent) {
 		prev -= (i + 2)
 		goto CheckMore
 	}
-	c.Close()
-	sink <- ClientEvent{c, EventDel, ""}
+	c.Close("error")
+	sink <- ClientEvent{c, EventDel, *c.quitMsg}
 }
 
 func (c *Client) MsgSender() {

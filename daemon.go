@@ -38,7 +38,7 @@ const (
 )
 
 var (
-	RENickname = regexp.MustCompile("^[a-zA-Z0-9-]{1,24}$")
+	RENickname = regexp.MustCompile("^[^\\x00\\x0D\\x0A\\x20\\x3A]{1,64}$") // any octet except NUL, CR, LF, " " and ":"
 
 	clients    map[*Client]struct{} = make(map[*Client]struct{})
 	clientsM   sync.RWMutex
@@ -47,6 +47,18 @@ var (
 	roomsGroup sync.WaitGroup
 	roomSinks  map[*Room]chan ClientEvent = make(map[*Room]chan ClientEvent)
 )
+
+func GetRoom(name string) (r *Room, found bool) {
+	var room string
+	if strings.HasPrefix(name, "#") {
+		room = strings.ToLower(name)
+	} else {
+		room = "#" + strings.ToLower(name)
+	}
+	r, found = rooms[room]
+
+	return r, found
+}
 
 func SendLusers(client *Client) {
 	lusers := 0
@@ -86,11 +98,9 @@ func SendWhois(client *Client, nicknames []string) {
 	var room *Room
 	var subscriber *Client
 	for _, nickname := range nicknames {
-		nickname = strings.ToLower(nickname)
 		clientsM.RLock()
 		for c = range clients {
-			if strings.ToLower(*c.nickname) == nickname {
-				clientsM.RUnlock()
+			if c.Match(nickname) {
 				goto Found
 			}
 		}
@@ -112,7 +122,7 @@ func SendWhois(client *Client, nicknames []string) {
 		roomsM.RLock()
 		for _, room = range rooms {
 			for subscriber = range room.members {
-				if *subscriber.nickname == nickname {
+				if subscriber.Match(nickname) {
 					subscriptions = append(subscriptions, *room.name)
 				}
 			}
@@ -121,6 +131,7 @@ func SendWhois(client *Client, nicknames []string) {
 		sort.Strings(subscriptions)
 		client.ReplyNicknamed("319", *c.nickname, strings.Join(subscriptions, " "))
 		client.ReplyNicknamed("318", *c.nickname, "End of /WHOIS list")
+		clientsM.RUnlock()
 	}
 }
 
@@ -145,7 +156,7 @@ func SendList(client *Client, cols []string) {
 		if room, found = rooms[r]; found {
 			client.ReplyNicknamed(
 				"322",
-				r,
+				*room.name,
 				fmt.Sprintf("%d", len(room.members)),
 				*room.topic,
 			)
@@ -153,6 +164,54 @@ func SendList(client *Client, cols []string) {
 		roomsM.RUnlock()
 	}
 	client.ReplyNicknamed("323", "End of /LIST")
+}
+
+func ClientNick(client *Client, cols []string) {
+	if len(cols) == 1 || len(cols[1]) < 1 {
+		client.ReplyParts("431", "No nickname given")
+		return
+	}
+	nickname := cols[1]
+	// Compatibility with some clients prepending colons to nickname
+	nickname = strings.TrimPrefix(nickname, ":")
+	rename := false
+	clientsM.RLock()
+	for existingClient := range clients {
+		if existingClient == client {
+			rename = true
+		} else if existingClient.Match(nickname) {
+			clientsM.RUnlock()
+			client.ReplyParts("433", "*", nickname, "Nickname is already in use")
+			return
+		}
+	}
+	clientsM.RUnlock()
+	if !RENickname.MatchString(nickname) {
+		client.ReplyParts("432", "*", cols[1], "Erroneous nickname")
+		return
+	}
+	if rename {
+		// find all rooms the client has subscribed,
+		// then gather all clients in those rooms
+		cs := make(map[*Client]struct{})
+		clientsM.RLock() // first clients, then rooms,
+		roomsM.RLock() // to avoid deadlock with SendWhois
+		for _, r := range rooms {
+			if _, subscribed := r.members[client]; subscribed {
+				for c := range r.members {
+					cs[c] = struct{}{}
+				}
+			}
+		}
+		// then notify those clients of the nick change
+		message := ":" + client.String() + " NICK " + nickname
+		for c := range cs {
+			c.Msg(message)
+		}
+		roomsM.RUnlock()
+		clientsM.RUnlock()
+	}
+	client.nickname = &nickname
 }
 
 // Unregistered client workflow processor. Unregistered client:
@@ -170,28 +229,7 @@ func ClientRegister(client *Client, cmd string, cols []string) {
 		password := strings.TrimPrefix(cols[1], ":")
 		client.password = &password
 	case "NICK":
-		if len(cols) == 1 || len(cols[1]) < 1 {
-			client.ReplyParts("431", "No nickname given")
-			return
-		}
-		nickname := cols[1]
-		// Compatibility with some clients prepending colons to nickname
-		nickname = strings.TrimPrefix(nickname, ":")
-		nickname = strings.ToLower(nickname)
-		clientsM.RLock()
-		for existingClient := range clients {
-			if *existingClient.nickname == nickname {
-				clientsM.RUnlock()
-				client.ReplyParts("433", "*", nickname, "Nickname is already in use")
-				return
-			}
-		}
-		clientsM.RUnlock()
-		if !RENickname.MatchString(nickname) {
-			client.ReplyParts("432", "*", cols[1], "Erroneous nickname")
-			return
-		}
-		client.nickname = &nickname
+		ClientNick(client, cols)
 	case "USER":
 		if len(cols) == 1 {
 			client.ReplyNotEnoughParameters("USER")
@@ -210,7 +248,7 @@ func ClientRegister(client *Client, cmd string, cols []string) {
 		if passwords != nil && *passwords != "" {
 			if client.password == nil {
 				client.ReplyParts("462", "You may not register")
-				client.Close()
+				client.Close("462")
 				return
 			}
 			contents, err := ioutil.ReadFile(*passwords)
@@ -224,7 +262,7 @@ func ClientRegister(client *Client, cmd string, cols []string) {
 				}
 				if lp := strings.Split(entry, ":"); lp[0] == *client.nickname && lp[1] != *client.password {
 					client.ReplyParts("462", "You may not register")
-					client.Close()
+					client.Close("462")
 					return
 				}
 			}
@@ -246,7 +284,7 @@ func RoomRegister(name string) (*Room, chan ClientEvent) {
 	roomNew := NewRoom(name)
 	roomSink := make(chan ClientEvent)
 	roomsM.Lock()
-	rooms[name] = roomNew
+	rooms[strings.ToLower(name)] = roomNew
 	roomSinks[roomNew] = roomSink
 	roomsM.Unlock()
 	go roomNew.Processor(roomSink)
@@ -279,7 +317,7 @@ func HandlerJoin(client *Client, cmd string) {
 		}
 		roomsM.RLock()
 		for roomExisting, roomSink = range roomSinks {
-			if room == *roomExisting.name {
+			if roomExisting.Match(room) {
 				roomsM.RUnlock()
 				if (*roomExisting.key != "") && (*roomExisting.key != key) {
 					goto Denied
@@ -320,7 +358,7 @@ func Processor(events chan ClientEvent, finished chan struct{}) {
 			for c := range clients {
 				if c.recvTimestamp.Add(PingTimeout).Before(now) {
 					log.Println(c, "ping timeout")
-					c.Close()
+					c.Close("ping timeout")
 					continue
 				}
 				if c.sendTimestamp.Add(PingThreshold).Before(now) {
@@ -329,7 +367,7 @@ func Processor(events chan ClientEvent, finished chan struct{}) {
 						c.sendTimestamp = time.Now()
 					} else {
 						log.Println(c, "ping timeout")
-						c.Close()
+						c.Close("ping timeout")
 					}
 				}
 			}
@@ -374,7 +412,13 @@ func Processor(events chan ClientEvent, finished chan struct{}) {
 			}
 			if cmd == "QUIT" {
 				log.Println(client, "quit")
-				client.Close()
+				var quitMsg string
+				if len(cols) >= 2 {
+					quitMsg = strings.TrimPrefix(cols[1], ":")
+				} else {
+					quitMsg = *client.nickname
+				}
+				client.Close(quitMsg)
 				continue
 			}
 			if !client.registered {
@@ -400,6 +444,8 @@ func Processor(events chan ClientEvent, finished chan struct{}) {
 					continue
 				}
 				HandlerJoin(client, cols[1])
+			case "NICK":
+				ClientNick(client, cols)
 			case "LIST":
 				SendList(client, cols)
 			case "LUSERS":
@@ -410,7 +456,7 @@ func Processor(events chan ClientEvent, finished chan struct{}) {
 					continue
 				}
 				cols = strings.SplitN(cols[1], " ", 2)
-				if cols[0] == *client.username {
+				if strings.ToLower(cols[0]) == strings.ToLower(*client.username) {
 					if len(cols) == 1 {
 						client.Msg("221 " + *client.nickname + " +")
 					} else {
@@ -420,7 +466,7 @@ func Processor(events chan ClientEvent, finished chan struct{}) {
 				}
 				room := cols[0]
 				roomsM.RLock()
-				r, found := rooms[room]
+				r, found := GetRoom(room)
 				if !found {
 					client.ReplyNoChannel(room)
 					roomsM.RUnlock()
@@ -439,13 +485,18 @@ func Processor(events chan ClientEvent, finished chan struct{}) {
 					client.ReplyNotEnoughParameters("PART")
 					continue
 				}
-				rs := strings.Split(cols[1], " ")[0]
+				rs := strings.SplitN(cols[1], " ", 2)
 				roomsM.RLock()
-				for _, room := range strings.Split(rs, ",") {
-					if r, found := rooms[room]; found {
-						roomSinks[r] <- ClientEvent{client, EventDel, ""}
+				for _, room := range strings.Split(rs[0], ",") {
+					if r, found := GetRoom(room); found {
+						var partMsg string
+						if len(rs) >= 2 {
+							partMsg = strings.TrimPrefix(rs[1], ":")
+						} else {
+							partMsg = *client.nickname
+						}
+						roomSinks[r] <- ClientEvent{client, EventDel, partMsg}
 					} else {
-						roomsM.RUnlock()
 						client.ReplyNoChannel(room)
 						continue
 					}
@@ -470,10 +521,10 @@ func Processor(events chan ClientEvent, finished chan struct{}) {
 					continue
 				}
 				msg := ""
-				target := strings.ToLower(cols[0])
+				target := cols[0]
 				clientsM.RLock()
 				for c := range clients {
-					if *c.nickname == target {
+					if c.Match(target) {
 						msg = fmt.Sprintf(":%s %s %s %s", client, cmd, *c.nickname, cols[1])
 						c.Msg(msg)
 						if c.away != nil {
@@ -487,7 +538,7 @@ func Processor(events chan ClientEvent, finished chan struct{}) {
 					continue
 				}
 				roomsM.RLock()
-				if r, found := rooms[target]; found {
+				if r, found := rooms[strings.ToLower(target)]; found {
 					roomSinks[r] <- ClientEvent{
 						client,
 						EventMsg,
@@ -504,7 +555,7 @@ func Processor(events chan ClientEvent, finished chan struct{}) {
 				}
 				cols = strings.SplitN(cols[1], " ", 2)
 				roomsM.RLock()
-				r, found := rooms[cols[0]]
+				r, found := GetRoom(cols[0])
 				roomsM.RUnlock()
 				if !found {
 					client.ReplyNoChannel(cols[0])
@@ -525,8 +576,8 @@ func Processor(events chan ClientEvent, finished chan struct{}) {
 					continue
 				}
 				room := strings.Split(cols[1], " ")[0]
-				roomsM.RLock()
-				if r, found := rooms[room]; found {
+ 				roomsM.RLock()
+				if r, found := GetRoom(room); found {
 					roomSinks[r] <- ClientEvent{client, EventWho, ""}
 				} else {
 					client.ReplyNoChannel(room)
@@ -545,18 +596,16 @@ func Processor(events chan ClientEvent, finished chan struct{}) {
 					client.ReplyNotEnoughParameters("ISON")
 					continue
 				}
-				nicksKnown := make(map[string]struct{})
 				clientsM.RLock()
-				for c := range clients {
-					nicksKnown[*c.nickname] = struct{}{}
-				}
-				clientsM.RUnlock()
 				var nicksExists []string
 				for _, nickname := range strings.Split(cols[1], " ") {
-					if _, exists := nicksKnown[nickname]; exists {
-						nicksExists = append(nicksExists, nickname)
+					for c := range clients {
+						if c.Match(nickname) {
+							nicksExists = append(nicksExists, nickname)
+						}
 					}
 				}
+				clientsM.RUnlock()
 				client.ReplyNicknamed("303", strings.Join(nicksExists, " "))
 			case "VERSION":
 				var debug string

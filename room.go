@@ -63,6 +63,10 @@ func NewRoom(name string) *Room {
 	}
 }
 
+func (room *Room) Match(other string) bool {
+	return strings.ToLower(*room.name) == strings.ToLower(other)
+}
+
 func (room *Room) SendTopic(client *Client) {
 	room.RLock()
 	if *room.topic == "" {
@@ -125,15 +129,13 @@ func (room *Room) Processor(events <-chan ClientEvent) {
 				room.RUnlock()
 				continue
 			}
+			msg := fmt.Sprintf(":%s PART %s :%s", client, room.String(), event.text)
+			room.Broadcast(msg)
+			logSink <- LogEvent{room.String(), *client.nickname, "left", true}
 			room.RUnlock()
 			room.Lock()
 			delete(room.members, client)
 			room.Unlock()
-			room.RLock()
-			msg := fmt.Sprintf(":%s PART %s :%s", client, room.String(), *client.nickname)
-			room.Broadcast(msg)
-			logSink <- LogEvent{room.String(), *client.nickname, "left", true}
-			room.RUnlock()
 		case EventTopic:
 			room.RLock()
 			if _, subscribed := room.members[client]; !subscribed {
