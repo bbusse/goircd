@@ -344,7 +344,7 @@ func Processor(events chan ClientEvent, finished chan struct{}) {
 					client.ReplyNicknamed("305", "You are no longer marked as being away")
 					continue
 				}
-				msg := strings.TrimLeft(cols[1], ":")
+				msg := cols[1]
 				client.away = &msg
 				client.ReplyNicknamed("306", "You have been marked as being away")
 			case "JOIN":
