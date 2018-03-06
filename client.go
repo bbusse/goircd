@@ -21,11 +21,10 @@ package main
 import (
 	"bytes"
 	"log"
+	"net"
 	"strings"
 	"sync"
 	"time"
-
-	proxyproto "github.com/Freeaqingme/go-proxyproto"
 )
 
 const (
@@ -38,7 +37,7 @@ var (
 )
 
 type Client struct {
-	conn          *proxyproto.Conn
+	conn          net.Conn
 	registered    bool
 	nickname      *string
 	username      *string
@@ -56,7 +55,7 @@ func (c Client) String() string {
 	return *c.nickname + "!" + *c.username + "@" + c.conn.RemoteAddr().String()
 }
 
-func NewClient(conn *proxyproto.Conn) *Client {
+func NewClient(conn net.Conn) *Client {
 	nickname := "*"
 	username := ""
 	c := Client{

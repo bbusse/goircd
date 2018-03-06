@@ -32,21 +32,22 @@ import (
 	proxyproto "github.com/Freeaqingme/go-proxyproto"
 )
 
-var (
-	version   string
-	hostname  = flag.String("hostname", "localhost", "Hostname")
-	bind      = flag.String("bind", ":6667", "Address to bind to")
-	motd      = flag.String("motd", "", "Path to MOTD file")
-	logdir    = flag.String("logdir", "", "Absolute path to directory for logs")
-	statedir  = flag.String("statedir", "", "Absolute path to directory for states")
-	passwords = flag.String("passwords", "", "Optional path to passwords file")
-	tlsBind   = flag.String("tlsbind", "", "TLS address to bind to")
-	tlsPEM    = flag.String("tlspem", "", "Path to TLS certificat+key PEM file")
-	verbose   = flag.Bool("v", false, "Enable verbose logging.")
+const (
+	PROXY_TIMEOUT = 5
 )
 
-const (
-	PROXY_TIMEOUT = 5 * time.Second
+var (
+	version      string
+	hostname     = flag.String("hostname", "localhost", "Hostname")
+	bind         = flag.String("bind", ":6667", "Address to bind to")
+	motd         = flag.String("motd", "", "Path to MOTD file")
+	logdir       = flag.String("logdir", "", "Absolute path to directory for logs")
+	statedir     = flag.String("statedir", "", "Absolute path to directory for states")
+	passwords    = flag.String("passwords", "", "Optional path to passwords file")
+	tlsBind      = flag.String("tlsbind", "", "TLS address to bind to")
+	tlsPEM       = flag.String("tlspem", "", "Path to TLS certificat+key PEM file")
+	proxyTimeout = flag.Uint("proxytimeout", PROXY_TIMEOUT, "Timeout when using proxy protocol")
+	verbose      = flag.Bool("v", false, "Enable verbose logging.")
 )
 
 func listenerLoop(sock net.Listener, events chan ClientEvent) {
@@ -56,8 +57,7 @@ func listenerLoop(sock net.Listener, events chan ClientEvent) {
 			log.Println("Error during accepting connection", err)
 			continue
 		}
-		proxied_conn := proxyproto.NewConn(conn, PROXY_TIMEOUT)
-		client := NewClient(proxied_conn)
+		client := NewClient(conn)
 		go client.Processor(events)
 	}
 }
@@ -114,25 +114,39 @@ func Run() {
 		log.Println(*statedir, "statekeeper initialized")
 	}
 
+	proxyTimeout := time.Duration(uint(*proxyTimeout)) * time.Second
+
 	if *bind != "" {
 		listener, err := net.Listen("tcp", *bind)
 		if err != nil {
 			log.Fatalf("Can not listen on %s: %v", *bind, err)
 		}
+		// Add PROXY-Protocol support
+		listener = &proxyproto.Listener{Listener: listener, ProxyHeaderTimeout: proxyTimeout}
+
 		log.Println("Raw listening on", *bind)
 		go listenerLoop(listener, events)
 	}
+
 	if *tlsBind != "" {
 		cert, err := tls.LoadX509KeyPair(*tlsPEM, *tlsPEM)
 		if err != nil {
 			log.Fatalf("Could not load TLS keys from %s: %s", *tlsPEM, err)
 		}
 		config := tls.Config{Certificates: []tls.Certificate{cert}}
-		listenerTLS, err := tls.Listen("tcp", *tlsBind, &config)
+
+		listenerTLS, err := net.Listen("tcp", *tlsBind)
 		if err != nil {
 			log.Fatalf("Can not listen on %s: %v", *tlsBind, err)
 		}
 		log.Println("TLS listening on", *tlsBind)
+
+		// Add PROXY-Protocol support
+
+		listenerTLS = &proxyproto.Listener{Listener: listenerTLS, ProxyHeaderTimeout: proxyTimeout}
+
+		listenerTLS = tls.NewListener(listenerTLS, &config)
+
 		go listenerLoop(listenerTLS, events)
 	}
 	Processor(events, make(chan struct{}))
