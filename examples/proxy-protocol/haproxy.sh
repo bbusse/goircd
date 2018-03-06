@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 [[ -f examples/proxy-protocol/haproxy.pid ]] && rm examples/proxy-protocol/haproxy.pid
-fail() { echjo "$*"; exit 1; }
+fail() { echo "$*"; exit 1; }
 
 set -x
 which haproxy || fail haproxy is missing
