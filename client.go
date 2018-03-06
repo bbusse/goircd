@@ -25,8 +25,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	proxyproto "github.com/Freeaqingme/go-proxyproto"
 )
 
 const (
@@ -39,7 +37,7 @@ var (
 )
 
 type Client struct {
-	conn          *proxyproto.Conn
+	conn          net.Conn
 	registered    bool
 	nickname      *string
 	username      *string
@@ -73,7 +71,7 @@ func (c *Client) Match(other string) bool {
 	return strings.ToLower(*c.nickname) == strings.ToLower(other)
 }
 
-func NewClient(conn *proxyproto.Conn) *Client {
+func NewClient(conn net.Conn) *Client {
 	nickname := "*"
 	username := ""
 	realname := ""
