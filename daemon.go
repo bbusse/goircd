@@ -75,7 +75,7 @@ func GetNumberOfRegisteredUsers(client *Client) (nusers float64){
 }
 
 func SendLusers(client *Client) {
-	lusers := GetNumberOfRegisteredUsers(client)
+	lusers := int(GetNumberOfRegisteredUsers(client))
 	client.ReplyNicknamed("251", fmt.Sprintf("There are %d users and 0 invisible on 1 servers", lusers))
 }
 
