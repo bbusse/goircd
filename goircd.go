@@ -24,12 +24,15 @@ import (
 	"io/ioutil"
 	"log"
 	"net"
+	"net/http"
 	"path"
 	"path/filepath"
 	"strings"
 	"time"
 
 	proxyproto "github.com/Freeaqingme/go-proxyproto"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 const (
@@ -47,7 +50,37 @@ var (
 	tlsBind      = flag.String("tlsbind", "", "TLS address to bind to")
 	tlsPEM       = flag.String("tlspem", "", "Path to TLS certificat+key PEM file")
 	proxyTimeout = flag.Uint("proxytimeout", PROXY_TIMEOUT, "Timeout when using proxy protocol")
+	metrics      = flag.Bool("metrics", false, "Enable metrics export")
 	verbose      = flag.Bool("v", false, "Enable verbose logging.")
+
+	clients_tls_total = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "clients_tls_connected_total",
+			Help: "Number of connected clients during the lifetime of the server.",
+		},
+	)
+
+	clients_irc_total = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "clients_irc_connected_total",
+			Help: "Number of connected irc clients during the lifetime of the server.",
+		},
+	)
+
+	clients_irc_rooms_total = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "clients_irc_rooms_connected_total",
+			Help: "Number of clients joined to rooms during the lifetime of the server.",
+		},
+		[]string{"room"},
+	)
+
+	clients_connected = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "clients_connected",
+			Help: "Number of connected clients.",
+		},
+	)
 )
 
 func listenerLoop(sock net.Listener, events chan ClientEvent) {
@@ -58,6 +91,7 @@ func listenerLoop(sock net.Listener, events chan ClientEvent) {
 			continue
 		}
 		client := NewClient(conn)
+		clients_tls_total.Inc()
 		go client.Processor(events)
 	}
 }
@@ -149,7 +183,23 @@ func Run() {
 
 		go listenerLoop(listenerTLS, events)
 	}
+
+	// Create endpoint for prometheus metrics export
+	if *metrics {
+		go prom_export()
+	}
+
 	Processor(events, make(chan struct{}))
+}
+
+func prom_export() {
+	prometheus.MustRegister(clients_tls_total)
+	prometheus.MustRegister(clients_irc_total)
+	prometheus.MustRegister(clients_irc_rooms_total)
+	prometheus.MustRegister(clients_connected)
+
+	http.Handle("/metrics", promhttp.Handler())
+	log.Fatal(http.ListenAndServe(":8080", nil))
 }
 
 func main() {

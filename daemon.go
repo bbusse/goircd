@@ -28,6 +28,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 const (
@@ -60,15 +62,20 @@ func GetRoom(name string) (r *Room, found bool) {
 	return r, found
 }
 
-func SendLusers(client *Client) {
-	lusers := 0
+func GetNumberOfRegisteredUsers(client *Client) (nusers float64){
+	nusers = 0
 	clientsM.RLock()
 	for client := range clients {
 		if client.registered {
-			lusers++
+			nusers++
 		}
 	}
 	clientsM.RUnlock()
+	return nusers
+}
+
+func SendLusers(client *Client) {
+	lusers := GetNumberOfRegisteredUsers(client)
 	client.ReplyNicknamed("251", fmt.Sprintf("There are %d users and 0 invisible on 1 servers", lusers))
 }
 
@@ -268,6 +275,8 @@ func ClientRegister(client *Client, cmd string, cols []string) {
 			}
 		}
 		client.registered = true
+		clients_irc_total.Inc()
+		clients_connected.Set(GetNumberOfRegisteredUsers(client))
 		client.ReplyNicknamed("001", "Hi, welcome to IRC")
 		client.ReplyNicknamed("002", "Your host is "+*hostname+", running goircd "+version)
 		client.ReplyNicknamed("003", "This server was created sometime")
@@ -338,17 +347,22 @@ func HandlerJoin(client *Client, cmd string) {
 	Denied:
 		client.ReplyNicknamed("475", room, "Cannot join channel (+k) - bad key")
 	Joined:
+		clients_irc_rooms_total.With(prometheus.Labels{"room":"all"}).Inc()
+		clients_irc_rooms_total.With(prometheus.Labels{"room":room}).Inc()
 	}
 }
 
 func Processor(events chan ClientEvent, finished chan struct{}) {
 	var now time.Time
+
 	go func() {
 		for {
 			time.Sleep(10 * time.Second)
 			events <- ClientEvent{eventType: EventTick}
 		}
 	}()
+
+
 	for event := range events {
 		now = time.Now()
 		client := event.client
@@ -618,6 +632,7 @@ func Processor(events chan ClientEvent, finished chan struct{}) {
 			default:
 				client.ReplyNicknamed("421", cmd, "Unknown command")
 			}
+			clients_connected.Set(GetNumberOfRegisteredUsers(client))
 		}
 	}
 }
