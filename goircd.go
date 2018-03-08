@@ -49,6 +49,7 @@ var (
 	passwords    = flag.String("passwords", "", "Optional path to passwords file")
 	tlsBind      = flag.String("tlsbind", "", "TLS address to bind to")
 	tlsPEM       = flag.String("tlspem", "", "Path to TLS certificat+key PEM file")
+	tlsonly      = flag.Bool("tlsonly", false, "Disable listening on non tls-port")
 	proxyTimeout = flag.Uint("proxytimeout", PROXY_TIMEOUT, "Timeout when using proxy protocol")
 	metrics      = flag.Bool("metrics", false, "Enable metrics export")
 	verbose      = flag.Bool("v", false, "Enable verbose logging.")
@@ -150,7 +151,7 @@ func Run() {
 
 	proxyTimeout := time.Duration(uint(*proxyTimeout)) * time.Second
 
-	if *bind != "" {
+	if *bind != "" && !*tlsonly {
 		listener, err := net.Listen("tcp", *bind)
 		if err != nil {
 			log.Fatalf("Can not listen on %s: %v", *bind, err)
