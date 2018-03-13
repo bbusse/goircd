@@ -1,0 +1,7 @@
+**/*
+!.git/
+!*.go
+!GNUmakefile
+!common.mk
+!Dockerfile
+!.dockerignore
