@@ -20,7 +20,6 @@ package main
 
 import (
 	"crypto/tls"
-	"flag"
 	"io/ioutil"
 	"log"
 	"net"
@@ -29,6 +28,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/namsral/flag"
 
 	proxyproto "github.com/Freeaqingme/go-proxyproto"
 	"github.com/prometheus/client_golang/prometheus"
