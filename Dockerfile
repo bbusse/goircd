@@ -2,9 +2,9 @@ FROM golang:1.10 AS goircd-builder
 ARG  PACKAGE=github.com/bbusse/goircd
 ENV  PACKAGE=$PACKAGE
 
-WORKDIR /go/src/github.com/bbusse/goircd/
+WORKDIR /go/src/$PACKAGE/
 
-ADD  . /go/src/github.com/bbusse/goircd/
+ADD  . /go/src/$PACKAGE/
 
 RUN  export CGO_ENABLED=0 \
  &&  go get $PACKAGE \
