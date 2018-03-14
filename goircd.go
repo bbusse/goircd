@@ -52,6 +52,7 @@ var (
 	passwords    = flag.String("passwords", "", "Optional path to passwords file")
 	tlsBind      = flag.String("tlsbind", "", "TLS address to bind to")
 	tlsPEM       = flag.String("tlspem", "", "Path to TLS certificat+key PEM file")
+	tlsKEY       = flag.String("tlskey", "", "Path to TLS key PEM as seperate file")
 	tlsonly      = flag.Bool("tlsonly", false, "Disable listening on non tls-port")
 	proxyTimeout = flag.Uint("proxytimeout", PROXY_TIMEOUT, "Timeout when using proxy protocol")
 	metrics      = flag.Bool("metrics", false, "Enable metrics export")
@@ -168,9 +169,14 @@ func Run() {
 	}
 
 	if *tlsBind != "" {
-		cert, err := tls.LoadX509KeyPair(*tlsPEM, *tlsPEM)
+		if *tlsKEY == "" {
+			tlsKEY = tlsPEM
+		}
+
+		cert, err := tls.LoadX509KeyPair(*tlsPEM, *tlsKEY)
+
 		if err != nil {
-			log.Fatalf("Could not load TLS keys from %s: %s", *tlsPEM, err)
+			log.Fatalf("Could not load Certificate and TLS keys from %s: %s", *tlsPEM, *tlsKEY, err)
 		}
 		config := tls.Config{Certificates: []tls.Certificate{cert}}
 
