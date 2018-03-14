@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ template "goircd.fullname" . }}
+data:
+  BIND: ":{{ .Values.service.internalPort }}"
+  HEALTHCHECK: {{ .Values.config.healthcheck | quote  }}
+  HOSTNAME: {{ .Values.config.hostname | quote  }}
+  METRICS: {{ .Values.config.metrics | quote  }}
+  MOTD: |
+    {{ .Values.config.motd }}

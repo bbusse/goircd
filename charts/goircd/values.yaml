@@ -1,0 +1,37 @@
+# Default values for goircd.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+replicaCount: 1
+
+config:
+  healthcheck: true
+  hostname: irc.example.com
+  metrics: true
+  motd: |
+    Hello kubernetes with helm
+
+image:
+  repository: quay.io/goircd/goircd
+  tag: latest
+  pullPolicy: IfNotPresent
+  healthcheckPort: 8086
+
+service:
+  type: ClusterIP
+  internalPort: 6667
+  externalPort: 6967
+
+resources:
+  limits:
+   cpu: 10m
+   memory: 20Mi
+  requests:
+   cpu: 10m
+   memory: 20Mi
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
