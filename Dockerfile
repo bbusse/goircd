@@ -13,5 +13,4 @@ RUN  export CGO_ENABLED=0 \
 
 FROM alpine AS goircd
 COPY --from=goircd-builder /go/bin/goircd /bin/goircd
-ENTRYPOINT ["sh","-c"]
-CMD ["exec goircd"]
+ENTRYPOINT ["goircd"]
