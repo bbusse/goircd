@@ -39,7 +39,6 @@ import (
 
 const (
 	PROXY_TIMEOUT   = 5
-	HEALTCHECK_PORT = 8080
 )
 
 var (
