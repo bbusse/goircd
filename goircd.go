@@ -57,6 +57,7 @@ var (
 	metrics      = flag.Bool("metrics", false, "Enable metrics export")
 	verbose      = flag.Bool("v", false, "Enable verbose logging.")
 	healtcheck   = flag.Bool("healthcheck", false, "Enable healthcheck endpoint.")
+	healtbind    = flag.String("healthbind", "[::]:8086", "Healthcheck bind address and port.")
 
 	clients_tls_total = prometheus.NewCounter(
 		prometheus.CounterOpts{
