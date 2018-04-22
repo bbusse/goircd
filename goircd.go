@@ -207,13 +207,10 @@ func Run() {
 }
 
 func health_endpoint() {
-	var (
-		health_bind = "0.0.0.0:8086"
-	)
 	health := healthchecking.NewHandler()
 	health.AddLivenessCheck("goroutine-threshold", healthchecking.GoroutineCountCheck(100))
-	log.Printf("Healthcheck listening on http://%s", health_bind)
-	http.ListenAndServe(health_bind, health)
+	log.Printf("Healthcheck listening on http://%s", *healtbind)
+	http.ListenAndServe(*healtbind, health)
 }
 
 func prom_export() {
