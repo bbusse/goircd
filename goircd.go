@@ -39,7 +39,6 @@ import (
 
 const (
 	PROXY_TIMEOUT   = 5
-	HEALTCHECK_PORT = 8080
 )
 
 var (
@@ -58,6 +57,7 @@ var (
 	metrics      = flag.Bool("metrics", false, "Enable metrics export")
 	verbose      = flag.Bool("v", false, "Enable verbose logging.")
 	healtcheck   = flag.Bool("healthcheck", false, "Enable healthcheck endpoint.")
+	healtbind    = flag.String("healthbind", "[::]:8086", "Healthcheck bind address and port.")
 
 	clients_tls_total = prometheus.NewCounter(
 		prometheus.CounterOpts{
@@ -207,13 +207,10 @@ func Run() {
 }
 
 func health_endpoint() {
-	var (
-		health_bind = "0.0.0.0:8086"
-	)
 	health := healthchecking.NewHandler()
 	health.AddLivenessCheck("goroutine-threshold", healthchecking.GoroutineCountCheck(100))
-	log.Printf("Healthcheck listening on http://%s", health_bind)
-	http.ListenAndServe(health_bind, health)
+	log.Printf("Healthcheck listening on http://%s", *healtbind)
+	http.ListenAndServe(*healtbind, health)
 }
 
 func prom_export() {
